@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#080810" />
+  <title>Sessions Manager 📷</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #080810; font-family: 'Segoe UI', 'SF Pro Display', sans-serif; color: #F0F0F0; }
+    input, textarea, button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 0; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+const STORAGE_KEY = "photo_sessions_v1";
+
+const initialSessions = [
+  {
+    id: "20119-3",
+    fileNumber: "20119/3",
+    sessionDate: "2026-03-15",
+    travelDate: "2026-03-21",
+    clientCount: 2,
+    hotel: "سوفوتيل الجزيرة",
+    guide: "محمد كفافي",
+    guidePhone: "+20 109 596 9394",
+    leader: "أحمد ربيع",
+    leaderPhone: "01001258444",
+    deliverables: ["ألبوم", "فلاشة"],
+    status: "upcoming",
+    notes: "",
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const STATUS_CONFIG = {
+  upcoming:   { label: "Upcoming",    color: "#00D4FF", bg: "rgba(0,212,255,0.12)" },
+  inprogress: { label: "In Progress", color: "#FFB800", bg: "rgba(255,184,0,0.12)" },
+  done:       { label: "Done",        color: "#00FF87", bg: "rgba(0,255,135,0.12)" },
+  cancelled:  { label: "Cancelled",   color: "#FF4D6D", bg: "rgba(255,77,109,0.12)" },
+};
+
+function formatDate(dateStr) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  const target = new Date(dateStr); target.setHours(0,0,0,0);
+  return Math.round((target - now) / 86400000);
+}
+
+function DaysChip({ dateStr }) {
+  const days = daysUntil(dateStr);
+  if (days === null) return null;
+  let color = "#00D4FF", label = `${days}d`;
+  if (days < 0)      { color = "#666";    label = "Past"; }
+  else if (days === 0) { color = "#FFB800"; label = "Today"; }
+  else if (days <= 2)  { color = "#FF4D6D"; label = `${days}d`; }
+  return <span style={{ fontSize:10, fontWeight:700, color, background:`${color}18`, border:`1px solid ${color}40`, borderRadius:6, padding:"2px 7px", letterSpacing:0.5, fontFamily:"monospace" }}>{label}</span>;
+}
+
+function SessionCard({ session, onSelect }) {
+  const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.upcoming;
+  const days = daysUntil(session.sessionDate);
+  const urgent = days !== null && days >= 0 && days <= 2;
+  return (
+    <div onClick={() => onSelect(session)} style={{ background:"rgba(255,255,255,0.04)", border:`1px solid ${urgent?"#FF4D6D44":"rgba(255,255,255,0.08)"}`, borderRadius:16, padding:"16px 18px", marginBottom:12, cursor:"pointer", position:"relative", overflow:"hidden" }}>
+      {urgent && <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#FF4D6D,#FFB800)" }} />}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
+        <div>
+          <div style={{ fontSize:11, color:"#666", fontFamily:"monospace", marginBottom:3 }}>#{session.fileNumber}</div>
+          <div style={{ fontSize:16, fontWeight:700, color:"#F0F0F0", direction:"rtl" }}>{session.hotel}</div>
+        </div>
+        <div style={{ fontSize:11, fontWeight:700, color:cfg.color, background:cfg.bg, border:`1px solid ${cfg.color}40`, borderRadius:8, padding:"4px 10px" }}>{cfg.label}</div>
+      </div>
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+          <span>📅</span><span style={{ fontSize:12, color:"#999" }}>{formatDate(session.sessionDate)}</span><DaysChip dateStr={session.sessionDate} />
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+          <span>👥</span><span style={{ fontSize:12, color:"#999" }}>{session.clientCount} clients</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+          <span>✈️</span><span style={{ fontSize:12, color:"#999" }}>{formatDate(session.travelDate)}</span>
+        </div>
+      </div>
+      <div style={{ marginTop:10, display:"flex", gap:6, flexWrap:"wrap" }}>
+        {session.deliverables.map(d => <span key={d} style={{ fontSize:11, color:"#B0B0B0", background:"rgba(255,255,255,0.06)", borderRadius:6, padding:"2px 8px", border:"1px solid rgba(255,255,255,0.08)", direction:"rtl" }}>{d}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function SessionDetail({ session, onClose, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({...session});
+  const cfg = STATUS_CONFIG[session.status] || STATUS_CONFIG.upcoming;
+  const save = () => { onUpdate(form); setEditing(false); };
+
+  const field = (label, value, key, type="text", dir="ltr") => (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:11, color:"#666", marginBottom:4, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</div>
+      {editing
+        ? <input type={type} value={form[key]||""} onChange={e => setForm(f=>({...f,[key]:type==="number"?+e.target.value:e.target.value}))} style={{ width:"100%", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:8, padding:"8px 10px", color:"#F0F0F0", fontSize:14, direction:dir, outline:"none" }} />
+        : <div style={{ fontSize:14, color:"#E0E0E0", direction:dir, fontWeight:500 }}>{value||"—"}</div>
+      }
+    </div>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:100, display:"flex", flexDirection:"column", backdropFilter:"blur(8px)" }}>
+      <div style={{ background:"#0E0E12", flex:1, overflowY:"auto", borderRadius:"20px 20px 0 0", marginTop:40, padding:"24px 20px 40px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.08)", border:"none", color:"#fff", borderRadius:10, padding:"8px 14px", cursor:"pointer", fontSize:13 }}>← Back</button>
+          <div style={{ fontSize:12, fontFamily:"monospace", color:"#666" }}>#{session.fileNumber}</div>
+          <div style={{ fontSize:12, fontWeight:700, color:cfg.color, background:cfg.bg, borderRadius:8, padding:"5px 12px", border:`1px solid ${cfg.color}40` }}>{cfg.label}</div>
+        </div>
+
+        <div style={{ fontSize:22, fontWeight:800, color:"#F0F0F0", direction:"rtl", marginBottom:6 }}>{session.hotel}</div>
+        <div style={{ display:"flex", gap:8, marginBottom:24 }}><DaysChip dateStr={session.sessionDate} /><span style={{ fontSize:12, color:"#666" }}>Session Day</span></div>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:"#666", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Status</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {Object.entries(STATUS_CONFIG).map(([k,v]) => (
+              <button key={k} onClick={() => onUpdate({...session, status:k})} style={{ fontSize:12, fontWeight:600, color:session.status===k?v.color:"#555", background:session.status===k?v.bg:"transparent", border:`1px solid ${session.status===k?v.color+"60":"#333"}`, borderRadius:8, padding:"5px 12px", cursor:"pointer" }}>{v.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ height:1, background:"rgba(255,255,255,0.06)", margin:"20px 0" }} />
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" }}>
+          <div>{field("Session Date", formatDate(session.sessionDate), "sessionDate", "date")}</div>
+          <div>{field("Travel Date", formatDate(session.travelDate), "travelDate", "date")}</div>
+          <div>{field("Clients", session.clientCount, "clientCount", "number")}</div>
+          <div>{field("File #", session.fileNumber, "fileNumber")}</div>
+        </div>
+
+        {field("Hotel", session.hotel, "hotel", "text", "rtl")}
+        {field("Guide", session.guide, "guide", "text", "rtl")}
+        {field("Guide Phone", session.guidePhone, "guidePhone")}
+        {field("Leader", session.leader, "leader", "text", "rtl")}
+        {field("Leader Phone", session.leaderPhone, "leaderPhone")}
+
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11, color:"#666", marginBottom:8, textTransform:"uppercase", letterSpacing:0.5 }}>Deliverables</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {(editing?form.deliverables:session.deliverables).map((d,i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"4px 10px" }}>
+                <span style={{ fontSize:13, color:"#D0D0D0", direction:"rtl" }}>{d}</span>
+                {editing && <button onClick={() => setForm(f=>({...f,deliverables:f.deliverables.filter((_,j)=>j!==i)}))} style={{ background:"none", border:"none", color:"#FF4D6D", cursor:"pointer", fontSize:14 }}>×</button>}
+              </div>
+            ))}
+            {editing && <button onClick={() => { const v=prompt("Add deliverable:"); if(v) setForm(f=>({...f,deliverables:[...f.deliverables,v]})); }} style={{ background:"rgba(0,212,255,0.08)", border:"1px dashed rgba(0,212,255,0.3)", color:"#00D4FF", borderRadius:8, padding:"4px 12px", cursor:"pointer", fontSize:12 }}>+ Add</button>}
+          </div>
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11, color:"#666", marginBottom:6, textTransform:"uppercase", letterSpacing:0.5 }}>Notes</div>
+          {editing
+            ? <textarea value={form.notes||""} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={3} style={{ width:"100%", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:8, padding:"10px", color:"#F0F0F0", fontSize:14, resize:"none", outline:"none" }} />
+            : <div style={{ fontSize:14, color:session.notes?"#C0C0C0":"#444", fontStyle:session.notes?"normal":"italic" }}>{session.notes||"No notes"}</div>
+          }
+        </div>
+
+        <div style={{ display:"flex", gap:10 }}>
+          {editing ? (
+            <>
+              <button onClick={save} style={{ flex:1, background:"linear-gradient(135deg,#00D4FF,#0099CC)", border:"none", color:"#000", borderRadius:12, padding:"14px", fontWeight:800, fontSize:14, cursor:"pointer" }}>💾 Save</button>
+              <button onClick={() => { setForm({...session}); setEditing(false); }} style={{ flex:1, background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", color:"#999", borderRadius:12, padding:"14px", cursor:"pointer" }}>Cancel</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setEditing(true)} style={{ flex:1, background:"linear-gradient(135deg,#00D4FF,#0099CC)", border:"none", color:"#000", borderRadius:12, padding:"14px", fontWeight:800, fontSize:14, cursor:"pointer" }}>✏️ Edit</button>
+              <button onClick={() => { if(confirm("Delete this session?")) onDelete(session.id); }} style={{ background:"rgba(255,77,109,0.1)", border:"1px solid rgba(255,77,109,0.3)", color:"#FF4D6D", borderRadius:12, padding:"14px 18px", cursor:"pointer" }}>🗑</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddSessionModal({ onClose, onAdd }) {
+  const [form, setForm] = useState({ fileNumber:"", sessionDate:"", travelDate:"", clientCount:1, hotel:"", guide:"", guidePhone:"", leader:"", leaderPhone:"", deliverables:[], notes:"", status:"upcoming" });
+  const [delivInput, setDelivInput] = useState("");
+
+  const f = (label, key, type="text", dir="ltr", placeholder="") => (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:11, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:0.5 }}>{label}</div>
+      <input type={type} value={form[key]||""} placeholder={placeholder} onChange={e=>setForm(f=>({...f,[key]:type==="number"?+e.target.value:e.target.value}))}
+        style={{ width:"100%", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:10, padding:"10px 12px", color:"#F0F0F0", fontSize:14, direction:dir, outline:"none" }} />
+    </div>
+  );
+
+  const submit = () => {
+    if (!form.fileNumber || !form.hotel) return alert("File number and hotel are required.");
+    onAdd({...form, id:`${form.fileNumber}-${Date.now()}`, createdAt:new Date().toISOString()});
+    onClose();
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.9)", zIndex:200, display:"flex", flexDirection:"column", backdropFilter:"blur(8px)" }}>
+      <div style={{ background:"#0E0E12", flex:1, overflowY:"auto", borderRadius:"20px 20px 0 0", marginTop:50, padding:"24px 20px 40px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22 }}>
+          <div style={{ fontSize:18, fontWeight:800, color:"#F0F0F0" }}>New Session</div>
+          <button onClick={onClose} style={{ background:"rgba(255,255,255,0.08)", border:"none", color:"#fff", borderRadius:10, padding:"8px 14px", cursor:"pointer" }}>✕</button>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 14px" }}>
+          <div>{f("File #","fileNumber","text","ltr","20119/3")}</div>
+          <div>{f("Clients","clientCount","number")}</div>
+          <div>{f("Session Date","sessionDate","date")}</div>
+          <div>{f("Travel Date","travelDate","date")}</div>
+        </div>
+        {f("Hotel","hotel","text","rtl","سوفوتيل الجزيرة")}
+        {f("Guide","guide","text","rtl")}
+        {f("Guide Phone","guidePhone","text","ltr","+20 100 000 0000")}
+        {f("Leader","leader","text","rtl")}
+        {f("Leader Phone","leaderPhone")}
+
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:11, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:0.5 }}>Deliverables</div>
+          <div style={{ display:"flex", gap:8, marginBottom:8, flexWrap:"wrap" }}>
+            {form.deliverables.map((d,i) => (
+              <span key={i} onClick={() => setForm(f=>({...f,deliverables:f.deliverables.filter((_,j)=>j!==i)}))}
+                style={{ fontSize:13, color:"#D0D0D0", background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:8, padding:"4px 10px", cursor:"pointer", direction:"rtl" }}>{d} ×</span>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input value={delivInput} onChange={e=>setDelivInput(e.target.value)} placeholder="e.g. ألبوم"
+              onKeyDown={e => { if(e.key==="Enter"&&delivInput.trim()){ setForm(f=>({...f,deliverables:[...f.deliverables,delivInput.trim()]})); setDelivInput(""); }}}
+              style={{ flex:1, background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:10, padding:"10px 12px", color:"#F0F0F0", fontSize:14, outline:"none", direction:"rtl" }} />
+            <button onClick={() => { if(delivInput.trim()){ setForm(f=>({...f,deliverables:[...f.deliverables,delivInput.trim()]})); setDelivInput(""); }}}
+              style={{ background:"rgba(0,212,255,0.1)", border:"1px solid rgba(0,212,255,0.3)", color:"#00D4FF", borderRadius:10, padding:"10px 16px", cursor:"pointer" }}>+</button>
+          </div>
+          <div style={{ fontSize:11, color:"#555", marginTop:4 }}>Press Enter or + to add</div>
+        </div>
+
+        <div style={{ marginBottom:22 }}>
+          <div style={{ fontSize:11, color:"#666", marginBottom:6, textTransform:"uppercase", letterSpacing:0.5 }}>Notes</div>
+          <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={3} placeholder="Any additional notes..."
+            style={{ width:"100%", background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:10, padding:"10px 12px", color:"#F0F0F0", fontSize:14, resize:"none", outline:"none" }} />
+        </div>
+
+        <button onClick={submit} style={{ width:"100%", background:"linear-gradient(135deg,#00D4FF,#0055FF)", border:"none", color:"#000", borderRadius:14, padding:"16px", fontWeight:900, fontSize:15, cursor:"pointer" }}>➕ Add Session</button>
+      </div>
+    </div>
+  );
+}
+
+function NotificationBell({ sessions }) {
+  const [open, setOpen] = useState(false);
+  const alerts = sessions.filter(s => { const d=daysUntil(s.sessionDate); return d!==null&&d>=0&&d<=3&&s.status!=="done"&&s.status!=="cancelled"; });
+  return (
+    <div style={{ position:"relative" }}>
+      <button onClick={() => setOpen(o=>!o)} style={{ background:alerts.length?"rgba(255,77,109,0.15)":"rgba(255,255,255,0.08)", border:`1px solid ${alerts.length?"rgba(255,77,109,0.4)":"rgba(255,255,255,0.1)"}`, color:alerts.length?"#FF4D6D":"#888", borderRadius:12, padding:"8px 12px", cursor:"pointer", fontSize:16, position:"relative" }}>
+        🔔
+        {alerts.length>0 && <span style={{ position:"absolute", top:-4, right:-4, background:"#FF4D6D", color:"#fff", fontSize:9, fontWeight:900, borderRadius:"50%", width:16, height:16, display:"flex", alignItems:"center", justifyContent:"center" }}>{alerts.length}</span>}
+      </button>
+      {open && (
+        <div style={{ position:"absolute", top:44, right:0, width:260, background:"#16161C", border:"1px solid rgba(255,255,255,0.1)", borderRadius:14, padding:14, zIndex:50, boxShadow:"0 20px 60px rgba(0,0,0,0.7)" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:"#666", marginBottom:10, textTransform:"uppercase", letterSpacing:0.5 }}>Alerts</div>
+          {alerts.length===0
+            ? <div style={{ fontSize:13, color:"#555" }}>No upcoming alerts</div>
+            : alerts.map(s => { const d=daysUntil(s.sessionDate); return (
+                <div key={s.id} style={{ marginBottom:10, padding:"10px 12px", background:"rgba(255,77,109,0.08)", border:"1px solid rgba(255,77,109,0.2)", borderRadius:10 }}>
+                  <div style={{ fontSize:13, fontWeight:700, color:"#F0F0F0", direction:"rtl" }}>{s.hotel}</div>
+                  <div style={{ fontSize:11, color:"#FF4D6D", marginTop:3 }}>{d===0?"⚡ Session is TODAY":`⚠️ Session in ${d} day${d>1?"s":""}`}</div>
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [sessions, setSessions] = useState(() => {
+    try { const s=localStorage.getItem(STORAGE_KEY); return s?JSON.parse(s):initialSessions; } catch { return initialSessions; }
+  });
+  const [selected, setSelected] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions)); } catch {} }, [sessions]);
+
+  const addSession = s => setSessions(p=>[s,...p]);
+  const updateSession = u => setSessions(p=>p.map(s=>s.id===u.id?u:s));
+  const deleteSession = id => { setSessions(p=>p.filter(s=>s.id!==id)); setSelected(null); };
+
+  const filtered = sessions.filter(s => {
+    const matchStatus = filter==="all"||s.status===filter;
+    const q = search.toLowerCase();
+    const matchSearch = !q||s.hotel.includes(q)||s.fileNumber.includes(q)||s.guide.includes(q)||s.leader.includes(q);
+    return matchStatus&&matchSearch;
+  });
+
+  const stats = {
+    total: sessions.length,
+    upcoming: sessions.filter(s=>s.status==="upcoming").length,
+    done: sessions.filter(s=>s.status==="done").length,
+    urgent: sessions.filter(s=>{ const d=daysUntil(s.sessionDate); return d!==null&&d>=0&&d<=2&&s.status!=="done"&&s.status!=="cancelled"; }).length,
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", background:"#080810", color:"#F0F0F0", maxWidth:430, margin:"0 auto", position:"relative" }}>
+      <div style={{ padding:"20px 20px 0", background:"linear-gradient(180deg,#0E0E18 0%,transparent 100%)", position:"sticky", top:0, zIndex:10, backdropFilter:"blur(12px)" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <div>
+            <div style={{ fontSize:22, fontWeight:900, letterSpacing:-0.5, color:"#F0F0F0" }}>📷 Sessions</div>
+            <div style={{ fontSize:12, color:"#555", marginTop:2 }}>Photography Booking Manager</div>
+          </div>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <NotificationBell sessions={sessions} />
+            <button onClick={() => setAdding(true)} style={{ background:"linear-gradient(135deg,#00D4FF,#0055FF)", border:"none", color:"#000", borderRadius:12, padding:"8px 14px", fontWeight:800, fontSize:13, cursor:"pointer" }}>+ New</button>
+          </div>
+        </div>
+
+        <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+          {[{label:"Total",val:stats.total,color:"#888"},{label:"Upcoming",val:stats.upcoming,color:"#00D4FF"},{label:"Done",val:stats.done,color:"#00FF87"},{label:"Urgent",val:stats.urgent,color:"#FF4D6D"}].map(s => (
+            <div key={s.label} style={{ flex:1, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:10, padding:"8px 6px", textAlign:"center" }}>
+              <div style={{ fontSize:18, fontWeight:800, color:s.color }}>{s.val}</div>
+              <div style={{ fontSize:9, color:"#555", textTransform:"uppercase", letterSpacing:0.5 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search hotel, guide, leader..."
+          style={{ width:"100%", background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:12, padding:"10px 14px", color:"#E0E0E0", fontSize:13, outline:"none", marginBottom:12 }} />
+
+        <div style={{ display:"flex", gap:6, marginBottom:14, overflowX:"auto", paddingBottom:2 }}>
+          {["all","upcoming","inprogress","done","cancelled"].map(k => {
+            const cfg = STATUS_CONFIG[k]||{label:"All",color:"#888",bg:"rgba(136,136,136,0.1)"};
+            const active = filter===k;
+            return <button key={k} onClick={()=>setFilter(k)} style={{ fontSize:11, fontWeight:700, whiteSpace:"nowrap", color:active?cfg.color:"#555", background:active?cfg.bg:"transparent", border:`1px solid ${active?cfg.color+"50":"rgba(255,255,255,0.06)"}`, borderRadius:8, padding:"5px 12px", cursor:"pointer" }}>{k==="all"?"All":cfg.label}</button>;
+          })}
+        </div>
+      </div>
+
+      <div style={{ padding:"0 20px 100px" }}>
+        {filtered.length===0
+          ? <div style={{ textAlign:"center", padding:"60px 20px", color:"#444" }}><div style={{ fontSize:40, marginBottom:12 }}>📭</div><div style={{ fontSize:15, fontWeight:600 }}>No sessions found</div></div>
+          : filtered.map(s => <SessionCard key={s.id} session={s} onSelect={setSelected} />)
+        }
+      </div>
+
+      {selected && <SessionDetail session={sessions.find(s=>s.id===selected.id)||selected} onClose={()=>setSelected(null)} onUpdate={u=>{updateSession(u);setSelected(u);}} onDelete={deleteSession} />}
+      {adding && <AddSessionModal onClose={()=>setAdding(false)} onAdd={addSession} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
